@@ -24,68 +24,91 @@ source_conf "$HESTIA/conf/hestia.conf"
 
 # JSON list function
 json_list() {
-    IFS=$'\n'
-    i=1
-    objects=$(grep DOMAIN $USER_DATA/dns.conf |wc -l)
-    echo "{"
-    while read str; do
-        parse_object_kv_list "$str"
-        echo -n '    "'$DOMAIN'": {
-        "IP": "'$IP'",
-        "TPL": "'$TPL'",
-        "TTL": "'$TTL'",
-        "EXP": "'$EXP'",
-        "SOA": "'$SOA'",
-        "SERIAL": "'$SERIAL'",
-        "DNSSEC": "'$DNSSEC'",
-        "SRC": "'$SRC'",
-        "RECORDS": "'$RECORDS'",
-        "SUSPENDED": "'$SUSPENDED'",
-        "TIME": "'$TIME'",
-        "DATE": "'$DATE'"
-    }'
-        if [ "$i" -lt "$objects" ]; then
-            echo ','
-        else
-            echo
-        fi
-        ((i++))
-    done < <(cat $USER_DATA/dns.conf)
-    echo '}'
+	"$HESTIA_PHP" -- \
+		"$USER_DATA/dns.conf" \
+		"$HESTIA/func/object-parser.php" \
+		"$HESTIA_RESERVED_CONF_KEYS" \
+		"$HESTIA_OBJECT_KEY_EXCEPTIONS" << 'EOPHP'
+<?php
+
+declare(strict_types=1);
+
+[
+    $script,
+    $file,
+    $parser,
+    $reservedString,
+    $exceptionsString,
+] = $argv;
+
+require $parser;
+
+$records = parseObjectKvFile(
+    $file,
+    parseObjectKvList($reservedString),
+    parseObjectKvList($exceptionsString)
+);
+
+$output = [];
+
+foreach ($records as $record) {
+    $domain = $record['DOMAIN']
+        ?? objectParserFail('Missing DOMAIN in: ' . $file);
+
+    $output[$domain] = [
+        'IP' => $record['IP'] ?? '',
+        'TPL' => $record['TPL'] ?? '',
+        'TTL' => $record['TTL'] ?? '',
+        'EXP' => $record['EXP'] ?? '',
+        'SOA' => $record['SOA'] ?? '',
+        'SERIAL' => $record['SERIAL'] ?? '',
+        'DNSSEC' => $record['DNSSEC'] ?? '',
+        'SRC' => $record['SRC'] ?? '',
+        'RECORDS' => $record['RECORDS'] ?? '',
+        'SUSPENDED' => $record['SUSPENDED'] ?? '',
+        'TIME' => $record['TIME'] ?? '',
+        'DATE' => $record['DATE'] ?? '',
+    ];
+}
+
+echo objectParserEncodeJson($output);
+EOPHP
+
+	check_result "$?" \
+		"Invalid object format in file: $USER_DATA/dns.conf" \
+		"$E_INVALID"
 }
 
 # SHELL list function
 shell_list() {
-    IFS=$'\n'
-    echo "DOMAIN   IP   TPL   TTL   DNSSEC   REC   SPND   DATE"
-    echo "------   --   ---   ---   ------   ---   ----   ----"
-    while read str; do
-        parse_object_kv_list "$str"
-        echo "$DOMAIN $IP $TPL $TTL $DNSSEC $RECORDS $SUSPENDED $DATE"
-    done < <(cat $USER_DATA/dns.conf)
+	IFS=$'\n'
+	echo "DOMAIN   IP   TPL   TTL   DNSSEC   REC   SPND   DATE"
+	echo "------   --   ---   ---   ------   ---   ----   ----"
+	while read str; do
+		parse_object_kv_list "$str"
+		echo "$DOMAIN $IP $TPL $TTL $DNSSEC $RECORDS $SUSPENDED $DATE"
+	done < <(cat $USER_DATA/dns.conf)
 }
-
 
 # PLAIN list function
 plain_list() {
-    IFS=$'\n'
-    while read str; do
-        parse_object_kv_list "$str"
-        echo -ne "$DOMAIN\t$IP\t$TPL\t$TTL\t$EXP\t$SOA\t$DNSSEC\t$SERIAL\t"
-        echo -e "$SRC\t$RECORDS\t$SUSPENDED\t$TIME\t$DATE"
-    done < <(cat $USER_DATA/dns.conf)
+	IFS=$'\n'
+	while read str; do
+		parse_object_kv_list "$str"
+		echo -ne "$DOMAIN\t$IP\t$TPL\t$TTL\t$EXP\t$SOA\t$DNSSEC\t$SERIAL\t"
+		echo -e "$SRC\t$RECORDS\t$SUSPENDED\t$TIME\t$DATE"
+	done < <(cat $USER_DATA/dns.conf)
 }
-
 
 # CSV list function
 csv_list() {
-    IFS=$'\n'
-    echo "DOMAIN,IP,TPL,TTL,EXP,SOA,SERIAL,SRC,DNSSEC,RECORDS,SUSPENDED,TIME,DATE"
-    while read str; do
-        parse_object_kv_list "$str"
-        echo -n "$DOMAIN,$IP,$TPL,$TTL,$EXP,$SOA,$SERIAL,"
-        echo "$SRC,$DNSSEC,$RECORDS,$SUSPENDED,$TIME,$DATE"
-    done < <(cat $USER_DATA/dns.conf)
+	IFS=$'\n'
+	echo "DOMAIN,IP,TPL,TTL,EXP,SOA,SERIAL,SRC,DNSSEC,RECORDS,SUSPENDED,TIME,DATE"
+	while read str; do
+		parse_object_kv_list "$str"
+		echo -n "$DOMAIN,$IP,$TPL,$TTL,$EXP,$SOA,$SERIAL,"
+		echo "$SRC,$DNSSEC,$RECORDS,$SUSPENDED,$TIME,$DATE"
+	done < <(cat $USER_DATA/dns.conf)
 }
 
 #----------------------------------------------------------#
@@ -102,10 +125,10 @@ is_object_valid 'user' 'USER' "$user"
 
 # Listing data
 case $format in
-    json)   json_list ;;
-    plain)  plain_list ;;
-    csv)    csv_list ;;
-    shell)  shell_list |column -t ;;
+	json) json_list ;;
+	plain) plain_list ;;
+	csv) csv_list ;;
+	shell) shell_list | column -t ;;
 esac
 
 #----------------------------------------------------------#

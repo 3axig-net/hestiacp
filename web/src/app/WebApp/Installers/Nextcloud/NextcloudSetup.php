@@ -1,67 +1,73 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Hestia\WebApp\Installers\Nextcloud;
 
-use Hestia\WebApp\Installers\BaseSetup as BaseSetup;
+use Hestia\WebApp\BaseSetup;
+use Hestia\WebApp\InstallationTarget\InstallationTarget;
 
 class NextcloudSetup extends BaseSetup
 {
-    protected $appInfo = [
+    protected array $info = [
         'name' => 'Nextcloud',
         'group' => 'cloud',
-        'enabled' => true,
         'version' => 'latest',
-        'thumbnail' => 'nextcloud-thumb.png'
+        'thumbnail' => 'nextcloud-thumb.png',
     ];
 
-    protected $appname = 'nextcloud';
-
-    protected $config = [
+    protected array $config = [
         'form' => [
-            'username' => ['value'=>'admin'],
-            'password' => 'password'
-            ],
+            'username' => ['value' => 'admin'],
+            'password' => 'password',
+        ],
         'database' => true,
         'resources' => [
-            'archive'  => [ 'src' => 'https://download.nextcloud.com/server/releases/latest.tar.bz2' ]
+            'archive' => ['src' => 'https://download.nextcloud.com/server/releases/latest.tar.bz2'],
         ],
         'server' => [
             'nginx' => [
-                'template' => 'owncloud'
+                'template' => 'owncloud',
             ],
-            'php' => [ 
-                'supported' => [ '7.3','7.4','8.0','8.1' ],
-            ]
-        ], 
+            'php' => [
+                'supported' => ['8.2', '8.3', '8.4', '8.5'],
+            ],
+        ],
     ];
 
-    public function install(array $options = null): bool
+    protected function setupApplication(InstallationTarget $target, array $options): void
     {
-        parent::install($options);
-        parent::setup($options);
-        
-        // install nextcloud
-        $php_version = $this -> appcontext -> getSupportedPHP($this -> config['server']['php']['supported']);
-    
-        $this->appcontext->runUser('v-run-cli-cmd', ["/usr/bin/php".$options['php_version'],
-            $this->getDocRoot('occ'),
+        $this->appcontext->runPHP($options['php_version'], $target->getDocRoot('occ'), [
             'maintenance:install',
-            '--database mysql',
-            '--database-name '.$this->appcontext->user() . '_' .$options['database_name'],
-            '--database-user '.$this->appcontext->user() . '_' .$options['database_user'],
-            '--database-pass '.$options['database_password'],
-            '--admin-user '.$options['username'],
-            '--admin-pass '.$options['password']
-            ], $status);
+            '--database',
+            'mysql',
+            '--database-name',
+            $target->database->name,
+            '--database-host',
+            $target->database->host,
+            '--database-user',
+            $target->database->user,
+            '--database-pass',
+            $target->database->password,
+            '--admin-user',
+            $options['username'],
+            '--admin-pass',
+            $options['password'],
+        ]);
 
-        $this->appcontext->runUser(
-            'v-run-cli-cmd',
-            ["/usr/bin/php".$options['php_version'],
-                $this->getDocRoot('occ'),
-                'config:system:set',
-                'trusted_domains 2 --value='.$this->domain
-            ],
-            $status);
-        return ($status->code === 0);
+        $this->appcontext->runPHP($options['php_version'], $target->getDocRoot('occ'), [
+            'config:system:set',
+            'trusted_domains',
+            '2',
+            '--value=' . $target->domain->domainName,
+        ]);
+
+        // Bump minimum memory limit to 512M
+        $phpIni = $target->getDocRoot('.user.ini');
+
+        $contents = $this->appcontext->readFile($phpIni);
+        $contents .= 'memory_limit=512M\r\n';
+
+        $this->appcontext->createFile($phpIni, $contents);
     }
 }

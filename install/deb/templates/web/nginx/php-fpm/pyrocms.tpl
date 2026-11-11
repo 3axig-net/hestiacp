@@ -1,66 +1,66 @@
 #=========================================================================#
 # Default Web Domain Template                                             #
 # DO NOT MODIFY THIS FILE! CHANGES WILL BE LOST WHEN REBUILDING DOMAINS   #
-# https://docs.hestiacp.com/admin_docs/web.html#how-do-web-templates-work #
+# https://hestiacp.com/docs/server-administration/web-templates.html      #
 #=========================================================================#
 
 server {
-    listen      %ip%:%web_port%;
-    server_name %domain_idn% %alias_idn%;
-    root        %docroot%/public;
-    index       index.php index.html index.htm;
-    access_log  /var/log/nginx/domains/%domain%.log combined;
-    access_log  /var/log/nginx/domains/%domain%.bytes bytes;
-    error_log   /var/log/nginx/domains/%domain%.error.log error;
-        
-    include %home%/%user%/conf/web/%domain%/nginx.forcessl.conf*;
+	listen      %ip%:%web_port%;
+	server_name %domain_idn% %alias_idn%;
+	root        %docroot%/public;
+	index       index.php index.html index.htm;
+	access_log  /var/log/nginx/domains/%domain%.log combined;
+	access_log  /var/log/nginx/domains/%domain%.bytes bytes;
+	error_log   /var/log/nginx/domains/%domain%.error.log error;
 
-    location /installer {
-            try_files $uri $uri/ /installer/index.php?$query_string;
-    }
+	include %home%/%user%/conf/web/%domain%/nginx.forcessl.conf*;
 
-    location / {
-        try_files $uri $uri/ /index.php;
+	location ~ /\.(?!well-known\/) {
+		deny all;
+		return 404;
+	}
 
-        location ~* ^.+\.(jpeg|jpg|png|webp|gif|bmp|ico|svg|css|js)$ {
-            expires     max;
-            fastcgi_hide_header "Set-Cookie";
-        }
+	location /installer {
+		try_files $uri $uri/ /installer/index.php?$query_string;
+	}
 
-        location ~ [^/]\.php(/|$) {
-            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-            if (!-f $document_root$fastcgi_script_name) {
-                return  404;
-            }
+	location / {
+		try_files $uri $uri/ /index.php;
 
-            fastcgi_pass    %backend_lsnr%;
-            fastcgi_index   index.php;
-            fastcgi_param  SCRIPT_FILENAME  $document_root$fastcgi_script_name;
-            include /etc/nginx/fastcgi_params;
-            include     %home%/%user%/conf/web/%domain%/nginx.fastcgi_cache.conf*;
-        }
-    }
+		location ~* ^.+\.(jpeg|jpg|png|webp|gif|bmp|ico|svg|css|js)$ {
+			expires max;
+			fastcgi_hide_header "Set-Cookie";
+		}
 
-    location = /robots.txt  { access_log off; log_not_found off; }
-    location = /favicon.ico { access_log off; log_not_found off; }
-    location ~ /\.          { access_log off; log_not_found off; deny all; }
-    location ~ ~$           { access_log off; log_not_found off; deny all; }
+		location ~ [^/]\.php(/|$) {
+			try_files $uri =404;
 
-    location /error/ {
-        alias   %home%/%user%/web/%domain%/document_errors/;
-    }
+			include /etc/nginx/fastcgi_params;
 
-     location ~ /\.(?!well-known\/) { 
-        deny all; 
-        return 404;
-     }
+			fastcgi_index index.php;
+			fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
 
-    location /vstats/ {
-        alias   %home%/%user%/web/%domain%/stats/;
-        include %home%/%user%/web/%domain%/stats/auth.conf*;
-    }
+			fastcgi_pass %backend_lsnr%;
 
-    include     /etc/nginx/conf.d/phpmyadmin.inc*;
-    include     /etc/nginx/conf.d/phppgadmin.inc*;
-    include     %home%/%user%/conf/web/%domain%/nginx.conf_*;
+			include %home%/%user%/conf/web/%domain%/nginx.fastcgi_cache.conf*;
+		}
+	}
+
+	location = /robots.txt { access_log off; log_not_found off; }
+	location = /favicon.ico { access_log off; log_not_found off; }
+	#location ~ /\. { access_log off; log_not_found off; deny all; }
+	location ~ ~$ { access_log off; log_not_found off; deny all; }
+
+	location /error/ {
+		alias %home%/%user%/web/%domain%/document_errors/;
+	}
+
+	location /vstats/ {
+		alias   %home%/%user%/web/%domain%/stats/;
+		include %home%/%user%/web/%domain%/stats/auth.conf*;
+	}
+
+	include /etc/nginx/conf.d/phpmyadmin.inc*;
+	include /etc/nginx/conf.d/phppgadmin.inc*;
+	include %home%/%user%/conf/web/%domain%/nginx.conf_*;
 }

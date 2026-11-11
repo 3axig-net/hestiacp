@@ -1,8 +1,8 @@
 #!/bin/bash
-# info: list public dnssec key 
-# options: USER DOMAIN [FROMAT]
+# info: list public dnssec key
+# options: USER DOMAIN [FORMAT]
 #
-# example: v-list-dns-public-key admin acme.com
+# example: v-list-dnssec-public-key admin acme.com
 #
 # This function list the public key to be used with DNSSEC and needs to be added to the domain register.
 
@@ -30,7 +30,6 @@ source_conf "$HESTIA/conf/hestia.conf"
 #                    Verifications                         #
 #----------------------------------------------------------#
 
-
 format_domain
 format_domain_idn
 
@@ -41,33 +40,35 @@ is_object_valid 'dns' 'DOMAIN' "$domain"
 
 # JSON list function
 json_list() {
-    echo '{'
-    echo '    "'$DOMAIN'": {
-       "RECORD": "'$record'",
-       "FLAG": "'$flag'",
-       "ALGORITHM": "'$algorithm'",
-       "KEY": "'$key'",
-       "DS":"'$ds'"
+	echo '{'
+	echo '    "'$DOMAIN'": {
+		"RECORD": "'$record'",
+		"KEYTAG": "'$keytag'",
+		"FLAG": "'$flag'",
+		"ALGORITHM": "'$algorithm'",
+		"KEY": "'$key'",
+		"DS":"'$ds'"
     }'
-    echo '}'
+	echo '}'
 }
 
 # SHELL list function
 shell_list() {
-   echo "RECORD:    $record"
-   echo "DS:        $DS" 
-   echo "FLAG:      $flag" 
-   echo "ALGORITHM: $algorithm" 
-   echo "KEY:       $key"  
+	echo "RECORD:    $record"
+	echo "DS:        $ds"
+	echo "KEYTAG:    $keytag"
+	echo "FLAG:      $flag"
+	echo "ALGORITHM: $algorithm"
+	echo "KEY:       $key"
 }
 
 # PLAIN list function
 plain_list() {
-   if [ "$dnstype" != "DS" ];then
-      echo -e "$record"
-   else
-      echo -e "$ds"
-   fi
+	if [ "$dnstype" != "DS" ]; then
+		echo -e "$record"
+	else
+		echo -e "$ds"
+	fi
 }
 
 #----------------------------------------------------------#
@@ -76,19 +77,19 @@ plain_list() {
 
 parse_object_kv_list $(grep "DOMAIN='$domain'" $USER_DATA/dns.conf)
 
-
 if [ -n "$KEY" ]; then
-   record=$(cat "/var/cache/bind/K$domain_idn.+013+$KEY.key" | grep DNSKEY );
-   flag=$(echo "$record" | cut -d' ' -f5)
-   algorithm=$(echo "$record" | cut -d' ' -f7)
-   key="$(echo "$record" | cut -d' ' -f8) $(echo "$record" | cut -d' ' -f9)"
-   ds=$(dnssec-dsfromkey "/var/cache/bind/K$domain_idn.+013+$KEY.key");
+	record=$(cat "/var/cache/bind/K$domain_idn.+013+$KEY.key" | grep DNSKEY)
+	ds=$(dnssec-dsfromkey "/var/cache/bind/K$domain_idn.+013+$KEY.key")
+	keytag=$(echo "$ds" | cut -d' ' -f4)
+	flag=$(echo "$record" | cut -d' ' -f5)
+	algorithm=$(echo "$record" | cut -d' ' -f7)
+	key="$(echo "$record" | cut -d' ' -f8) $(echo "$record" | cut -d' ' -f9)"
 fi
 
 case $format in
-    json)   json_list ;;
-    plain)  plain_list ;;
-    shell)  shell_list ;;
+	json) json_list ;;
+	plain) plain_list ;;
+	shell) shell_list ;;
 esac
 
 #----------------------------------------------------------#

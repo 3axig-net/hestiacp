@@ -1,0 +1,150 @@
+name: BATS testsuite
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
+permissions:
+  contents: read
+
+jobs:
+  docker-bats-nginx-apache:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 120
+    env:
+      INSTALL_APACHE_ARGS: "--apache yes"
+
+    steps: &bats-steps
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Build CI container
+        run: |
+          docker build \
+            -f .github/docker/hestia-ci.Dockerfile \
+            -t hestia-ci:${{ github.sha }} \
+            .
+
+      - name: Start CI container
+        run: |
+          docker run -d \
+            --name hestia-ci \
+            --hostname hestia-dev.local \
+            --privileged \
+            --cgroupns=host \
+            --tmpfs /run \
+            --tmpfs /run/lock \
+            --tmpfs /tmp:exec,mode=1777 \
+            --dns 8.8.8.8 \
+            --dns 8.8.4.4 \
+            --dns 2001:4860:4860::8888 \
+            --dns 2001:4860:4860::8844 \
+            -e TZ=UTC \
+            -e LANG=en_US.UTF-8 \
+            -e LC_ALL=en_US.UTF-8 \
+            -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+            -v "${GITHUB_WORKSPACE}:/hestiacp-git" \
+            -w /hestiacp-git \
+            hestia-ci:${{ github.sha }}
+          for _ in {1..100}; do
+            docker exec hestia-ci bash -lc 'systemctl is-system-running 2>/dev/null | grep -Eq "running|degraded"' && break
+            sleep 0.1
+          done
+
+      - name: Build local Hestia packages
+        run: |
+          docker exec hestia-ci bash -lc '
+            set -euxo pipefail
+            export TERM=xterm
+            cd /hestiacp-git/src
+            # Build the control panel plus its backend packages (hestia-php,
+            # hestia-nginx, hestia-web-terminal) so the install below does not
+            # depend on apt.hestiacp.com being in sync. --pkgrev 99 keeps the
+            # local versions above any published package.
+            bash ./hst_autocompile.sh --all --pkgrev 99 --noinstall --keepbuild "~localsrc"
+
+            DEB_PATH=/tmp/hestiacp-src/debs
+            rm -rf "${DEB_PATH}"
+            mkdir -p "${DEB_PATH}"
+            cp /tmp/hestiacp-src/deb/*.deb "${DEB_PATH}/"
+
+            # Fail here, not silently inside the installer, if the build did not
+            # produce every package the installer needs.
+            for pkg in hestia hestia-php hestia-nginx hestia-web-terminal; do
+              if ! compgen -G "${DEB_PATH}/${pkg}_*.deb" > /dev/null; then
+                echo "No ${pkg}_*.deb produced by hst_autocompile.sh"
+                ls -la /tmp/hestiacp-src/deb || true
+                exit 1
+              fi
+            done
+            ls -la "${DEB_PATH}"
+          '
+
+      - name: Install Hestia from local debs
+        run: |
+          docker exec hestia-ci bash -lc '
+            set -euxo pipefail
+            cd /hestiacp-git
+            bash install/hst-install-ubuntu.sh \
+              --hostname hestia.local.test \
+              --email admin@example.com \
+              --username admin \
+              --password Password123 \
+              --interactive no \
+              --force \
+              --with-debs /tmp/hestiacp-src/debs \
+              ${{ env.INSTALL_APACHE_ARGS }} \
+              --clamav no \
+              --spamassassin no
+
+            # The installer silently falls back to apt.hestiacp.com when a
+            # local deb is missing, so assert the local builds were used and
+            # fully configured (dpkg -i leaves failed packages unpacked).
+            for pkg in hestia hestia-php hestia-nginx; do
+              info="$(dpkg-query -s "${pkg}" 2> /dev/null || true)"
+              if ! grep -F "Status: install ok installed" <<< "${info}" > /dev/null ||
+                ! grep -F -- "-99+" <<< "${info}" > /dev/null; then
+                echo "${pkg} was not installed from the local build"
+                printf "%s\n" "${info}"
+                exit 1
+              fi
+            done
+          '
+
+      - name: Run BATS test suite
+        run: |
+          docker exec hestia-ci bash -lc '
+            set -euxo pipefail
+            cd /hestiacp-git
+            if ! command -v bats >/dev/null 2>&1; then
+              test/test_helper/bats-core/install.sh /usr/local
+            fi
+            bats test/test.bats test/upgrade/1.10.6.bats
+          '
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          docker exec hestia-ci bash -lc 'journalctl --no-pager -n 500' || true
+          docker exec hestia-ci bash -lc 'ls -la /root/hst_install_backups || true' || true
+          docker exec hestia-ci bash -lc 'tail -n 500 /root/hst_install_backups/hst_install-*.log || true' || true
+
+      - name: Cleanup container
+        if: always()
+        run: |
+          docker rm -f hestia-ci || true
+
+  # Same suite against an nginx-only install (no Apache2). Runs in parallel
+  # with the nginx + Apache2 job on its own runner and container.
+  docker-bats-nginx:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 120
+    env:
+      INSTALL_APACHE_ARGS: "--apache no"
+    steps: *bats-steps

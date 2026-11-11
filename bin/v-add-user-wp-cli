@@ -12,9 +12,10 @@
 
 # Argument definition
 user=$1
+update=$2
 
 if [ -z "$HESTIA" ]; then
-    HESTIA="/usr/local/hestia"
+	HESTIA="/usr/local/hestia"
 fi
 
 # shellcheck source=/etc/hestiacp/hestia.conf
@@ -28,7 +29,7 @@ source_conf "$HESTIA/conf/hestia.conf"
 #                    Verifications                         #
 #----------------------------------------------------------#
 
-check_args '1' "$#" 'USER'
+check_args '1' "$#" 'USER [UPDATE]'
 is_format_valid 'user'
 is_object_valid 'user' 'USER' "$user"
 is_object_unsuspended 'user' 'USER' "$user"
@@ -43,9 +44,13 @@ check_hestia_demo_mode
 WPCLI_DIR="/home/$user/.wp-cli"
 WPCLI_BIN="$WPCLI_DIR/wp"
 
-if [ -f "$WPCLI_DIR" ]; then
-    echo "WP-CLI already available"
-    exit
+if [ -f "$WPCLI_BIN" ]; then
+	if [ "$update" = 'yes' ]; then
+		user_exec $WPCLI_BIN cli update --yes
+		exit
+	fi
+	check_result "$E_EXISTS" "For user name '$user' WP-CLI already available!"
+	exit
 fi
 
 [ -z "$(readlink -m "$WPCLI_DIR" | egrep "^$HOMEDIR/$user/")" ] && check_result "$E_FORBIDEN" "Path outside of user homedir (WP Cli dir)"
@@ -54,8 +59,19 @@ fi
 mkdir -p "$WPCLI_DIR"
 chown $user:$user "$WPCLI_DIR"
 
-user_exec wget --tries=3 --timeout=15 --read-timeout=15 --waitretry=3 --no-dns-cache --quiet -O "$WPCLI_BIN" https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar 
+user_exec wget --tries=3 --timeout=15 --read-timeout=15 --waitretry=3 --no-dns-cache --quiet -O "$WPCLI_BIN" https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
 user_exec chmod +x "$WPCLI_BIN"
+
+# Create .bash_aliases if it does not exist yet (same approach as v-change-user-php-cli),
+# and remove any previous "alias wp=" line before appending a new one, so running
+# this script again does not pile up duplicate aliases.
+ALIASES_FILE=/home/$user/.bash_aliases
+if [ ! -f "$ALIASES_FILE" ]; then
+	touch "$ALIASES_FILE"
+	chown $user:$user "$ALIASES_FILE"
+fi
+sed -i "/^alias wp=/d" "$ALIASES_FILE"
+echo "alias wp=/home/"$user"/.wp-cli/wp" >> "$ALIASES_FILE"
 
 #----------------------------------------------------------#
 #                       Hestia                             #

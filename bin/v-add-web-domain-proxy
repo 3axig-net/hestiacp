@@ -1,6 +1,6 @@
 #!/bin/bash
 # info: add webdomain proxy support
-# options: USER DOMAIN [TEMPLATE] [EXTENTIONS] [RESTART]
+# options: USER DOMAIN [TEMPLATE] [EXTENSIONS] [RESTART]
 #
 # example: v-add-web-domain-proxy admin example.com
 #
@@ -15,9 +15,9 @@
 user=$1
 domain=$2
 template=$3
-default_extentions="jpg,jpeg,gif,png,webp,ico,svg,css,zip,tgz,gz,rar,bz2,doc,xls,\
+default_extensions="jpg,jpeg,gif,png,webp,ico,svg,css,zip,tgz,gz,rar,bz2,doc,xls,\
 exe,pdf,ppt,txt,odt,ods,odp,odf,tar,wav,bmp,rtf,js,mp3,avi,mpeg,flv,html,htm"
-extentions=${4-$default_extentions}
+extensions=${4-$default_extensions}
 restart="$5"
 
 # Includes
@@ -36,8 +36,8 @@ source_conf "$HESTIA/conf/hestia.conf"
 #                    Verifications                         #
 #----------------------------------------------------------#
 
-check_args '2' "$#" 'USER DOMAIN [TEMPLATE] [EXTENTIONS] [RESTART]'
-is_format_valid 'user' 'domain' 'extentions'
+check_args '2' "$#" 'USER DOMAIN [TEMPLATE] [EXTENSIONS] [RESTART]'
+is_format_valid 'user' 'domain' 'extensions' 'restart'
 is_system_enabled "$PROXY_SYSTEM" 'PROXY_SYSTEM'
 is_object_valid 'user' 'USER' "$user"
 is_object_unsuspended 'user' 'USER' "$user"
@@ -45,7 +45,7 @@ is_object_valid 'web' 'DOMAIN' "$domain"
 is_object_unsuspended 'web' 'DOMAIN' "$domain"
 is_object_value_empty 'web' 'DOMAIN' "$domain" '$PROXY'
 if [ -z $template ]; then
-    template=$(get_user_value '$PROXY_TEMPLATE')
+	template=$(get_user_value '$PROXY_TEMPLATE')
 fi
 is_proxy_template_valid $template
 
@@ -62,12 +62,12 @@ prepare_web_domain_values
 local_ip=$(get_real_ip "$IP")
 
 # Preparing domain values for the template substitution
-PROXY_EXT="$extentions"
+PROXY_EXT="$extensions"
 add_web_config "$PROXY_SYSTEM" "$template.tpl"
 
 # Adding proxy for ssl
 if [ "$SSL" = 'yes' ]; then
-    add_web_config "$PROXY_SYSTEM" "$template.stpl"
+	add_web_config "$PROXY_SYSTEM" "$template.stpl"
 fi
 
 #----------------------------------------------------------#
@@ -76,11 +76,11 @@ fi
 
 # Update config
 update_object_value 'web' 'DOMAIN' "$domain" '$PROXY' "$template"
-update_object_value 'web' 'DOMAIN' "$domain" '$PROXY_EXT' "$extentions"
+update_object_value 'web' 'DOMAIN' "$domain" '$PROXY_EXT' "$extensions"
 
 # Restarting web server
 $BIN/v-restart-proxy "$restart"
-check_result $? "Proxy restart failed" >/dev/null
+check_result $? "Proxy restart failed" > /dev/null
 
 $BIN/v-log-action "$user" "Info" "Web" "Proxy enabled (Domain: $domain)."
 log_event "$OK" "$ARGUMENTS"

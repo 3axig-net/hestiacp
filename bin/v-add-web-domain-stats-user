@@ -14,7 +14,8 @@
 user=$1
 domain=$2
 stats_user=$3
-password=$4; HIDE=4
+password=$4
+HIDE=4
 restart=$5
 
 # Includes
@@ -32,7 +33,7 @@ source_conf "$HESTIA/conf/hestia.conf"
 #----------------------------------------------------------#
 
 check_args '4' "$#" 'USER DOMAIN STATS_USER STATS_PASS [RESTART]'
-is_format_valid 'user' 'domain' 'stats_user'
+is_format_valid 'user' 'domain' 'stats_user' 'restart'
 is_system_enabled "$WEB_SYSTEM" 'WEB_SYSTEM'
 is_object_valid 'user' 'USER' "$user"
 is_object_unsuspended 'user' 'USER' "$user"
@@ -53,13 +54,13 @@ conf_dir="$HOMEDIR/$user/conf/web"
 
 # Adding htaccess file
 if [ "$WEB_SYSTEM" = 'nginx' ]; then
-    echo "auth_basic \"Web Statistics\";" > $stats_dir/auth.conf
-    echo "auth_basic_user_file $stats_dir/.htpasswd;" >> $stats_dir/auth.conf
+	echo "auth_basic \"Web Statistics\";" > $stats_dir/auth.conf
+	echo "auth_basic_user_file $stats_dir/.htpasswd;" >> $stats_dir/auth.conf
 else
-    echo "AuthUserFile $stats_dir/.htpasswd" > $stats_dir/.htaccess
-    echo "AuthName \"Web Statistics\"" >> $stats_dir/.htaccess
-    echo "AuthType Basic" >> $stats_dir/.htaccess
-    echo "Require valid-user" >> $stats_dir/.htaccess
+	echo "AuthUserFile $stats_dir/.htpasswd" > $stats_dir/.htaccess
+	echo "AuthName \"Web Statistics\"" >> $stats_dir/.htaccess
+	echo "AuthType Basic" >> $stats_dir/.htaccess
+	echo "Require valid-user" >> $stats_dir/.htaccess
 fi
 
 # Generating htaccess user and password
@@ -77,8 +78,8 @@ update_object_value 'web' 'DOMAIN' "$domain" '$STATS_CRYPT' "$stats_pass"
 
 # Restarting web server
 if [ "$WEB_SYSTEM" = 'nginx' ]; then
-    $BIN/v-restart-web "$restart"
-    check_result $? "Web restart failed" >/dev/null
+	$BIN/v-restart-web "$restart"
+	check_result $? "Web restart failed" > /dev/null
 fi
 
 # Logging

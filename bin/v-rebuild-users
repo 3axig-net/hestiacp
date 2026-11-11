@@ -29,6 +29,7 @@ source_conf "$HESTIA/conf/hestia.conf"
 #                    Verifications                         #
 #----------------------------------------------------------#
 
+is_format_valid 'restart'
 # Perform verification if read-only mode is enabled
 check_hestia_demo_mode
 
@@ -37,8 +38,8 @@ check_hestia_demo_mode
 #----------------------------------------------------------#
 
 # Rebuild loop
-for user in $($HESTIA/bin/v-list-sys-users plain); do
-    $BIN/v-rebuild-user "$user" "$restart"
+for user in $("$BIN/v-list-users" list); do
+	$BIN/v-rebuild-user "$user" "$restart"
 done
 
 #----------------------------------------------------------#

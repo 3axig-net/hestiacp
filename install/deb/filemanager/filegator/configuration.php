@@ -1,106 +1,281 @@
 <?php
 use function Hestiacp\quoteshellarg\quoteshellarg;
 
-$dist_config = require __DIR__.'/configuration_sample.php';
+// The frontend's AJAX calls (e.g. loading a file into the editor) expect a
+// JSON body with a non-2xx status on error, wrapped the same way as
+// FileGator's own Kernel\Response::json() does (see AuthController /
+// ErrorController: response->json('Not Allowed', 401) becomes
+// {"data": "Not Allowed"}) - otherwise the raw response gets rendered as if
+// it were the requested content. Full page navigations (e.g. a direct
+// /download link) instead need a real redirect, since there is no caller
+// left to interpret a JSON error body.
+function fm_session_expired_response() {
+	$accept = $_SERVER["HTTP_ACCEPT"] ?? "";
+	if (str_contains($accept, "application/json")) {
+		http_response_code(401);
+		header("Content-Type: application/json");
+		echo json_encode(["data" => "Session expired. Please log in again."]);
+	} else {
+		header("Location: /");
+	}
+	exit();
+}
 
-$dist_config['public_path'] = '/fm/';
-$dist_config['frontend_config']['app_name'] = 'File Manager - Hestia Control Panel';
-$dist_config['frontend_config']['logo'] = '../images/logo.svg';
-$dist_config['frontend_config']['editable'] = ['.txt', '.css', '.js', '.ts', '.html', '.php', '.py',
-        '.yml', '.xml', '.md', '.log', '.csv', '.conf', '.config', '.ini', '.scss', '.sh', '.env', '.example', '.htaccess', '.twig'];
-$dist_config['frontend_config']['guest_redirection'] = '/login/' ;
-$dist_config['frontend_config']['upload_max_size'] = 1024 * 1024 * 1024;
+if (session_status() === PHP_SESSION_NONE) {
+	session_start();
+}
 
-$dist_config['services']['Filegator\Services\Storage\Filesystem']['config']['adapter'] = function () {
-    if (!empty($_SESSION['INACTIVE_SESSION_TIMEOUT'])){
-    if ($_SESSION['INACTIVE_SESSION_TIMEOUT'] * 60 + $_SESSION['LAST_ACTIVITY'] < time()) {
-        $v_user = quoteshellarg($_SESSION['user']);
-        $v_session_id = quoteshellarg($_SESSION['token']);
-        exec('/usr/local/hestia/bin/v-log-user-logout ' . $v_user . ' ' . $v_session_id, $output, $return_var);
-        unset($_SESSION);
-        session_unset();
-        session_destroy();
-        session_start();
-        echo '<meta http-equiv="refresh" content="0; url=/">';
-        exit;
-    } else {
-        $_SESSION['LAST_ACTIVITY'] = time();
-    }
-    }else{
-        echo '<meta http-equiv="refresh" content="0; url=/">';
-    }
-    if (isset($_SESSION['user'])) {
-        $v_user = $_SESSION['user'];
-    }
-    if (!empty($_SESSION['look'])) {
-        if (isset($_SESSION['look']) && ($_SESSION['userContext'] === 'admin')) {
-            $v_user = $_SESSION['look'];
-        }
-        if ((isset($_SESSION['look']) && ($_SESSION['look'] == 'admin') && ($_SESSION['POLICY_SYSTEM_PROTECTED_ADMIN'] == 'yes'))) {
-            header('Location: /');
-        }
-    }
-    # Create filemanager sftp key if missing and trash it after 30 min
-    if (! file_exists('/home/'.basename($v_user).'/.ssh/hst-filemanager-key')) {
-        exec("sudo /usr/local/hestia/bin/v-add-user-sftp-key " . quoteshellarg(basename($v_user)) . " 30", $output, $return_var);
-        // filemanager also requires .ssh chmod o+x ... hopefully we can improve it to g+x or u+x someday
-        // current minimum for filemanager: chmod 0701 .ssh
-        shell_exec("sudo chmod o+x " . quoteshellarg('/home/' . basename($v_user) . '/.ssh'));
-    }
+$lang = $_SESSION["language"] ?? ($_SESSION["LANGUAGE"] ?? "en");
 
-    if (!isset($_SESSION['SFTP_PORT'])) {
-        exec("sudo /usr/local/hestia/bin/v-list-sys-sshd-port json", $output, $result);
-        $port=json_decode(implode('', $output));
-        if (is_numeric($port[0]) && $port[0] > 0) {
-            $_SESSION['SFTP_PORT'] = $port[0];
-        } elseif (preg_match('/^\s*Port\s+(\d+)$/im', file_get_contents('/etc/ssh/sshd_config'), $matches)) {
-            $_SESSION['SFTP_PORT'] = $matches[1] ?? 22;
-        } else {
-            $_SESSION['SFTP_PORT'] = 22;
-        }
-    }
+session_write_close();
 
-    preg_match('/(Hestia SFTP Chroot\nMatch User)(.*)/i', file_get_contents('/etc/ssh/sshd_config'), $matches);
-    $user_list = explode(',', $matches[2]);
-    if (in_array($v_user, $user_list)) {
-        $root = '/';
-    } else {
-        $root = '/home/'.$v_user;
-    }
+$dist_config = require __DIR__ . "/configuration_sample.php";
+$dist_config["public_path"] = "/fm/";
+$dist_config["frontend_config"]["app_name"] = "File Manager - Hestia Control Panel";
+$dist_config["frontend_config"]["logo"] = "../images/logo.svg";
+$dist_config["frontend_config"]["editable"] = [
+	".txt",
+	".css",
+	".js",
+	".json",
+	".ts",
+	".html",
+	".php",
+	".py",
+	".yml",
+	".xml",
+	".md",
+	".log",
+	".csv",
+	".conf",
+	".config",
+	".ini",
+	".scss",
+	".sh",
+	".env",
+	".example",
+	".htaccess",
+	".twig",
+	".tpl",
+	".yaml",
+];
+$dist_config["frontend_config"]["date_format"] = "YY/MM/DD H:mm:ss";
+$dist_config["frontend_config"]["guest_redirection"] = "/login/";
+$dist_config["frontend_config"]["upload_max_size"] = 1024 * 1024 * 1024;
+$dist_config["frontend_config"]["pagination"] = [100, 50, 25];
 
-    return new \League\Flysystem\Sftp\SftpAdapter([
-            'host' => '127.0.0.1',
-            'port' => intval($_SESSION['SFTP_PORT']),
-            'username' => basename($v_user),
-            'privateKey' => '/home/'.basename($v_user).'/.ssh/hst-filemanager-key',
-            'root' => $root,
-            'timeout' => 10,
-            'directoryPerm' => 0755,
-        ]);
+// Update list of languages when new language is added on Hestia or Filegator side
+switch ($lang) {
+	case "es":
+		$dist_config["frontend_config"]["language"] = "spanish";
+		break;
+	case "de":
+		$dist_config["frontend_config"]["language"] = "german";
+		break;
+	case "id":
+		$dist_config["frontend_config"]["language"] = "indonesian";
+		break;
+	case "tr":
+		$dist_config["frontend_config"]["language"] = "turkish";
+		break;
+	case "lt":
+		$dist_config["frontend_config"]["language"] = "lithuanian";
+		break;
+	case "pt":
+	case "pt-pt":
+		$dist_config["frontend_config"]["language"] = "portuguese";
+		break;
+	case "nl":
+		$dist_config["frontend_config"]["language"] = "dutch";
+		break;
+	case "zh":
+	case "zh-cn":
+	case "zh-tw":
+		$dist_config["frontend_config"]["language"] = "chinese";
+		break;
+	case "bg":
+		$dist_config["frontend_config"]["language"] = "bulgarian";
+		break;
+	case "sr":
+		$dist_config["frontend_config"]["language"] = "serbian";
+		break;
+	case "fr":
+		$dist_config["frontend_config"]["language"] = "french";
+		break;
+	case "sk":
+		$dist_config["frontend_config"]["language"] = "slovak";
+		break;
+	case "pl":
+		$dist_config["frontend_config"]["language"] = "polish";
+		break;
+	case "it":
+		$dist_config["frontend_config"]["language"] = "italian";
+		break;
+	case "ko":
+		$dist_config["frontend_config"]["language"] = "korean";
+		break;
+	case "cs":
+		$dist_config["frontend_config"]["language"] = "czech";
+		break;
+	case "gl":
+		$dist_config["frontend_config"]["language"] = "galician";
+		break;
+	case "ru":
+		$dist_config["frontend_config"]["language"] = "russian";
+		break;
+	case "hu":
+		$dist_config["frontend_config"]["language"] = "hungarian";
+		break;
+	case "sv":
+		$dist_config["frontend_config"]["language"] = "swedish";
+		break;
+	case "ja":
+		$dist_config["frontend_config"]["language"] = "japanese";
+		break;
+	case "sl":
+		$dist_config["frontend_config"]["language"] = "slovenian";
+		break;
+	case "he":
+		$dist_config["frontend_config"]["language"] = "hebrew";
+		break;
+	case "ro":
+		$dist_config["frontend_config"]["language"] = "romanian";
+		break;
+	case "ar":
+		$dist_config["frontend_config"]["language"] = "arabic";
+		break;
+	case "pt-br":
+		$dist_config["frontend_config"]["language"] = "portuguese_br";
+		break;
+	case "fa":
+		$dist_config["frontend_config"]["language"] = "persian";
+		break;
+	case "et":
+		$dist_config["frontend_config"]["language"] = "estonian";
+		break;
+	case "uk":
+		$dist_config["frontend_config"]["language"] = "ukrainian";
+		break;
+	default:
+		$dist_config["frontend_config"]["language"] = "english";
+		break;
+}
+
+$dist_config["services"]["Filegator\Services\Storage\Filesystem"]["config"][
+	"adapter"
+] = function () {
+	// Filesystem::init() calls this adapter factory for every single request,
+	// not just file operations, because FileGator eagerly initializes all
+	// configured services up front. Routes that FileGator's own routes.php
+	// marks accessible to the "guest" role (no session required) must keep
+	// working without a valid Hestia session - e.g. /getuser is how the
+	// frontend detects "not logged in" and must not itself fail with an
+	// error. Give those a no-op adapter instead of enforcing the session
+	// check meant for actual file access.
+	$guest_routes = ["/getuser", "/getconfig"];
+	if (in_array($_GET["r"] ?? "", $guest_routes, true)) {
+		return new \League\Flysystem\Adapter\NullAdapter();
+	}
+
+	if (empty($_SESSION["user"])) {
+		fm_session_expired_response();
+	}
+	if (!empty($_SESSION["INACTIVE_SESSION_TIMEOUT"])) {
+		if ($_SESSION["INACTIVE_SESSION_TIMEOUT"] * 60 + $_SESSION["LAST_ACTIVITY"] < time()) {
+			$v_user = quoteshellarg($_SESSION["user"]);
+			$v_session_id = quoteshellarg($_SESSION["token"]);
+			exec(
+				"/usr/local/hestia/bin/v-log-user-logout " . $v_user . " " . $v_session_id,
+				$output,
+				$return_var,
+			);
+			unset($_SESSION);
+			session_unset();
+			session_destroy();
+			session_start();
+			fm_session_expired_response();
+		} else {
+			$_SESSION["LAST_ACTIVITY"] = time();
+		}
+	} else {
+		fm_session_expired_response();
+	}
+	if (isset($_SESSION["user"])) {
+		$v_user = $_SESSION["user"];
+	}
+	if (!empty($_SESSION["look"])) {
+		if (isset($_SESSION["look"]) && $_SESSION["userContext"] === "admin") {
+			$v_user = $_SESSION["look"];
+		}
+		if (
+			isset($_SESSION["look"]) &&
+			$_SESSION["look"] == $_SESSION["ROOT_USER"] &&
+			$_SESSION["POLICY_SYSTEM_PROTECTED_ADMIN"] == "yes"
+		) {
+			header("Location: /");
+		}
+	}
+	# Create filemanager sftp key if missing and trash it after 30 min
+	if (!file_exists("/home/" . basename($v_user) . "/.ssh/hst-filemanager-key")) {
+		exec(
+			"sudo /usr/local/hestia/bin/v-add-user-sftp-key " .
+				quoteshellarg(basename($v_user)) .
+				" 30",
+			$output,
+			$return_var,
+		);
+	}
+
+	if (!isset($_SESSION["SFTP_PORT"])) {
+		exec("sudo /usr/local/hestia/bin/v-list-sys-sshd-port json", $output, $result);
+		$port = json_decode(implode("", $output));
+		if (is_numeric($port[0]) && $port[0] > 0) {
+			$_SESSION["SFTP_PORT"] = $port[0];
+		} elseif (
+			preg_match('/^\s*Port\s+(\d+)$/im', file_get_contents("/etc/ssh/sshd_config"), $matches)
+		) {
+			$_SESSION["SFTP_PORT"] = $matches[1] ?? 22;
+		} else {
+			$_SESSION["SFTP_PORT"] = 22;
+		}
+	}
+
+	$root = "/home/" . $v_user;
+
+	return new \League\Flysystem\Sftp\SftpAdapter([
+		"host" => "127.0.0.1",
+		"port" => intval($_SESSION["SFTP_PORT"]),
+		"username" => basename($v_user),
+		"privateKey" => "/home/" . basename($v_user) . "/.ssh/hst-filemanager-key",
+		"root" => $root,
+		"timeout" => 10,
+		"directoryPerm" => 0755,
+	]);
 };
 
-$dist_config['services']['Filegator\Services\Archiver\ArchiverInterface'] = [
-    'handler' => '\Filegator\Services\Archiver\Adapters\HestiaZipArchiver',
-    'config' => [],
+$dist_config["services"]["Filegator\Services\Archiver\ArchiverInterface"] = [
+	"handler" => "\Filegator\Services\Archiver\Adapters\HestiaZipArchiver",
+	"config" => [],
 ];
 
-$dist_config['services']['Filegator\Services\Auth\AuthInterface'] = [
-        'handler' => '\Filegator\Services\Auth\Adapters\HestiaAuth',
-        'config' => [
-            'permissions' => ['read', 'write', 'upload', 'download', 'batchdownload', 'zip'],
-            'private_repos' => false,
-        ],
-    ];
+$dist_config["services"]["Filegator\Services\Auth\AuthInterface"] = [
+	"handler" => "\Filegator\Services\Auth\Adapters\HestiaAuth",
+	"config" => [
+		"permissions" => ["read", "write", "upload", "download", "batchdownload", "zip", "chmod"],
+		"private_repos" => false,
+	],
+];
 
-$dist_config['services']['Filegator\Services\View\ViewInterface']['config'] = [
-    'add_to_head' => '
+$dist_config["services"]["Filegator\Services\View\ViewInterface"]["config"] = [
+	"add_to_head" => '
+	<link rel="stylesheet" href="/fm/css/hst-custom.css">
     <style>
         .logo {
             width: 46px;
         }
     </style>
     ',
-    'add_to_body' => '
+	"add_to_body" => '
 <script>
     var checkVueLoaded = setInterval(function() {
         if (document.getElementsByClassName("container").length) {
@@ -126,6 +301,5 @@ $dist_config['services']['Filegator\Services\View\ViewInterface']['config'] = [
     }, 200);
 </script>',
 ];
-
 
 return $dist_config;

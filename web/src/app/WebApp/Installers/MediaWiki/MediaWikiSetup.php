@@ -1,82 +1,68 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Hestia\WebApp\Installers\MediaWiki;
 
-use Hestia\System\Util;
-use Hestia\WebApp\Installers\BaseSetup as BaseSetup;
+use Hestia\WebApp\BaseSetup;
+use Hestia\WebApp\InstallationTarget\InstallationTarget;
 
-class MediaWikiSetup extends BaseSetup
-{
-    protected $appInfo = [
-        'name' => 'MediaWiki',
-        'group' => 'cms',
-        'enabled' => true,
-        'version' => '1.38.4',
-        'thumbnail' => 'MediaWiki-2020-logo.svg' //Max size is 300px by 300px
+class MediaWikiSetup extends BaseSetup {
+    protected array $info = [
+        "name" => "MediaWiki",
+        "group" => "cms",
+        "version" => "1.46.2",
+        "thumbnail" => "MediaWiki-2020-logo.svg", //Max size is 300px by 300px
     ];
 
-    protected $appname = 'mediawiki';
-    protected $extractsubdir = "/tmp-mediawiki";
-
-
-    protected $config = [
-        'form' => [
-            'admin_username' => ['type' => 'text', 'value' => 'admin'],
-            'admin_password' => 'password',
-            'language' => ['type' => 'text', 'value' => 'en'],
-            ],
-        'database' => true,
-        'resources' => [
-            'archive'  => [ 'src' => 'https://releases.wikimedia.org/mediawiki/1.38/mediawiki-1.38.4.zip' ],
+    protected array $config = [
+        "form" => [
+            "wiki_name" => ["value" => "MediaWiki"],
+            "admin_username" => ["type" => "text", "value" => "wikiadmin"],
+            "admin_password" => "password",
+            "language" => ["type" => "text", "value" => "en"],
         ],
-        'server' => [
-            'nginx' => [
-                'template' => 'default'
+        "database" => true,
+        "resources" => [
+            "archive" => [
+                "src" => "https://releases.wikimedia.org/mediawiki/1.46/mediawiki-1.46.2.zip",
             ],
-            'php' => [ 
-                'supported' => [ '7.3','7.4' ],
-            ]
-        ], 
+        ],
+        "server" => [
+            "nginx" => [
+                "template" => "default",
+            ],
+            "php" => [
+                "supported" => ["8.3", "8.4", "8.5"],
+            ],
+        ],
     ];
 
-    public function install(array $options = null)
-    {
-        parent::install($options);
-        parent::setup($options);
+    protected function setupApplication(InstallationTarget $target, array $options): void {
+        $this->appcontext->copyDirectory(
+            $target->getDocRoot("/mediawiki-1.46.2/."),
+            $target->getDocRoot(),
+        );
 
-        //check if ssl is enabled
-        $this->appcontext->run('v-list-web-domain', [$this->appcontext->user(), $this->domain, 'json'], $status);
+        $this->appcontext->runPHP(
+            $options["php_version"],
+            $target->getDocRoot("maintenance/install.php"),
+            [
+                "--dbserver=" . $target->database->host,
+                "--dbname=" . $target->database->name,
+                "--installdbuser=" . $target->database->user,
+                "--installdbpass=" . $target->database->password,
+                "--dbuser=" . $target->database->name,
+                "--dbpass=" . $target->database->password,
+                "--server=" . $target->getUrl(),
+                "--scriptpath=", // must NOT be /
+                "--lang=" . $options["language"],
+                "--pass=" . $options["admin_password"],
+                $options["wiki_name"],
+                $options["admin_username"],
+            ],
+        );
 
-        if ($status->code !== 0) {
-            throw new \Exception("Cannot list domain");
-        }
-
-        $sslEnabled = ($status->json[$this->domain]['SSL'] == 'no' ? 0 : 1);
-
-        $webDomain = ($sslEnabled ? "https://" : "http://") . $this->domain;
-
-        $this->appcontext->runUser('v-copy-fs-directory', [
-            $this->getDocRoot($this->extractsubdir . "/mediawiki-1.38.4/."),
-            $this->getDocRoot()], $result);
-
-        $this->appcontext->runUser('v-run-cli-cmd', ["/usr/bin/php".$options['php_version'],
-            $this->getDocRoot('maintenance/install.php'),
-            '--dbserver=localhost',
-            '--dbname=' . $this->appcontext->user() . '_' . $options['database_name'],
-            '--installdbuser=' . $this->appcontext->user() . '_' . $options['database_user'],
-            '--installdbpass=' . $options['database_password'],
-            '--dbuser=' . $this->appcontext->user() . '_' . $options['database_user'],
-            '--dbpass=' . $options['database_password'],
-            '--server=' . $webDomain,
-            '--scriptpath=', // must NOT be /
-            '--lang=' . $options['language'],
-            '--pass=' . $options['admin_password'],
-            "MediaWiki", // A Space here would trigger the next argument and preemptively set the admin username
-            $options['admin_username'],
-            ], $status);
-
-        $this->cleanup();
-
-        return ($status->code === 0);
+        $this->appcontext->deleteDirectory($target->getDocRoot("/mediawiki-1.46.2/"));
     }
 }

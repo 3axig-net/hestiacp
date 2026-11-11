@@ -14,6 +14,7 @@
 host=$1
 username=$2
 password=$3
+HIDE=3
 port=${4-587}
 
 # Includes
@@ -31,6 +32,7 @@ source_conf "$HESTIA/conf/hestia.conf"
 check_args '1' "$#" 'HOST [USERNAME] [PASSWORD] [PORT]'
 is_format_valid 'port' 'host' 'password'
 is_username_format_valid "$username" 'username'
+is_password_valid
 format_no_quotes "$password" 'passowrd'
 is_system_enabled "$MAIL_SYSTEM" 'MAIL_SYSTEM'
 
@@ -46,7 +48,7 @@ change_sys_value 'SMTP_RELAY_HOST' "$host"
 change_sys_value 'SMTP_RELAY_PORT' "$port"
 change_sys_value 'SMTP_RELAY_USER' "$username"
 
-cat >/etc/exim4/smtp_relay.conf << EOL
+cat > /etc/exim4/smtp_relay.conf << EOL
 host:$host
 port:$port
 user:$username

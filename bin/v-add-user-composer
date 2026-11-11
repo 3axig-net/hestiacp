@@ -5,7 +5,7 @@
 # example: v-add-user-composer user [version]
 #
 # This function adds support for composer (php dependency manager)
-# Homepage: https://getcomposer.org/
+# Homepage: <https://getcomposer.org/>
 
 #----------------------------------------------------------#
 #                Variables & Functions                     #
@@ -14,9 +14,10 @@
 # Argument definition
 user=$1
 version=${2-2}
+update=$3
 
 if [ -z "$HESTIA" ]; then
-    HESTIA="/usr/local/hestia"
+	HESTIA="/usr/local/hestia"
 fi
 
 # Includes
@@ -31,7 +32,7 @@ source_conf "$HESTIA/conf/hestia.conf"
 #                    Verifications                         #
 #----------------------------------------------------------#
 
-check_args '1' "$#" 'USER [VERSION]'
+check_args '1' "$#" 'USER [VERSION] [UPDATE]'
 is_format_valid 'user'
 is_number_format_valid "$version" "version"
 is_object_valid 'user' 'USER' "$user"
@@ -50,8 +51,12 @@ COMPOSER_DIR="$HOMEDIR/$user/.composer"
 COMPOSER_BIN="$COMPOSER_DIR/composer"
 
 if [ -f "$COMPOSER_BIN" ]; then
-    echo "Composer already available"
-    exit
+	if [[ "${update,,}" = "yes" ]]; then
+		COMPOSER_HOME="$HOMEDIR/$user/.config/composer" user_exec "$COMPOSER_BIN" --quiet self-update
+		exit
+	fi
+	echo "Composer already available"
+	exit
 fi
 
 [ -z "$(readlink -m "$COMPOSER_DIR" | egrep "^$HOMEDIR/$user/")" ] && check_result "$E_FORBIDEN" "Path outside of user homedir (Composer dir)"
@@ -62,6 +67,10 @@ mkdir -p "$COMPOSER_DIR"
 chown $user: "$COMPOSER_DIR"
 mkdir -p "$HOMEDIR/$user/.config"
 chown $user: "$HOMEDIR/$user/.config"
+if [[ -f "/home/$user/.bash_aliases" ]]; then
+	sed -i '/^alias composer=/d' "/home/$user/.bash_aliases"
+fi
+echo "alias composer='php /home/$user/.composer/composer'" >> "/home/$user/.bash_aliases"
 
 COMPOSER_SETUP_FILE=$(mktemp)
 check_result $? "Create temp file"
@@ -74,8 +83,8 @@ user_exec wget --tries=3 --timeout=15 --read-timeout=15 --waitretry=3 --no-dns-c
 check_result $? "Download composer installer"
 
 if [[ "$signature" != $(sha384sum "$COMPOSER_SETUP_FILE" | cut -f 1 -d " ") ]]; then
-    rm -f "$COMPOSER_SETUP_FILE"
-    check_result "$E_INVALID" "Composer signature does not match"
+	rm -f "$COMPOSER_SETUP_FILE"
+	check_result "$E_INVALID" "Composer signature does not match"
 fi
 
 COMPOSER_HOME="$HOMEDIR/$user/.config/composer" user_exec /usr/bin/php "$COMPOSER_SETUP_FILE" --quiet "--$version" --install-dir="$COMPOSER_DIR" --filename=composer

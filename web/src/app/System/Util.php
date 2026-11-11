@@ -10,18 +10,18 @@ class Util
      * Method from: https://stackoverflow.com/a/15575293
      * https://stackoverflow.com/questions/1091107/how-to-join-filesystem-path-strings-in-php
      */
-    public static function join_paths()
+    public static function joinPaths()
     {
-        $paths = array();
+        $paths = [];
         foreach (func_get_args() as $arg) {
             if ($arg !== '') {
                 $paths[] = $arg;
             }
         }
-        return preg_replace('#/+#', '/', join('/', $paths));
+        return preg_replace('#/+#', '/', implode('/', $paths));
     }
 
-    public static function generate_string(int $length = 16, $full = true)
+    public static function generateString(int $length = 16, $full = true)
     {
         $chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
         if ($full) {

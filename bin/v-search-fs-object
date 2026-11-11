@@ -30,31 +30,42 @@ check_args '2' "$#" 'USER OBJECT [PATH]'
 is_format_valid 'user'
 is_object_valid 'user' 'USER' "$user"
 
-
 # Perform verification if read-only mode is enabled
 check_hestia_demo_mode
 
 # Checking user homedir
 homedir=$(grep "^$user:" /etc/passwd | cut -f 6 -d :)
-if [ -z $homedir ]; then
-    echo "Error: user home directory doesn't exist"
-    exit 12
+if [ -z "$homedir" ]; then
+	echo "Error: user home directory doesn't exist"
+	exit 12
 fi
+# Resolve homedir itself too, in case it's a symlink, so the
+# comparison below is against the real path on both sides.
+rhomedir=$(readlink -f -- "$homedir")
 
 # Checking path
+# Replaced an unanchored substring path check with
+# an anchored `case` pattern. This prevents prefix
+# collisions (e.g. /home/user1 vs /home/user10) and
+# blocks path traversal by only allowing the exact
+# home directory or its subdirectories.
 if [ -n "$path" ]; then
-    rpath=$(readlink -f "$path")
-    if [ -z "$(echo $rpath |grep $homedir)" ]; then
-    echo "Error: invalid path $path"
-        exit 2
-    fi
+	rpath=$(readlink -f -- "$path")
+	case "$rpath" in
+		"$rhomedir" | "$rhomedir"/*) ;;
+		*)
+			echo "Error: invalid path $path"
+			exit 2
+			;;
+	esac
+	path=$rpath
 else
-    path=$homedir
+	path=$rhomedir
 fi
 
 # Listing directory
 user_exec find "$path" -name "$object" \
-    -printf "%y|%m|%TY-%Tm-%Td|%TH:%TM|%u|%g|%s|%P\n" 2>/dev/null
+	-printf "%y|%m|%TY-%Tm-%Td|%TH:%TM|%u|%g|%s|%P\n" 2> /dev/null
 #    -printf "%y|%m|%TY-%Tm-%Td|%TH:%TM:%TS|%u|%g|%s|%P\n" 2>/dev/null
 
 # Exiting

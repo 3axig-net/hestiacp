@@ -40,7 +40,7 @@ format_domain_idn
 #----------------------------------------------------------#
 
 check_args '4' "$#" 'USER DOMAIN ID NEWID [RESTART]'
-is_format_valid 'user' 'domain' 'id' 'newid'
+is_format_valid 'user' 'domain' 'id' 'newid' 'restart'
 is_system_enabled "$DNS_SYSTEM" 'DNS_SYSTEM'
 is_object_valid 'user' 'USER' "$user"
 is_object_unsuspended 'user' 'USER' "$user"
@@ -62,19 +62,21 @@ sed -i "s/^ID='$id'/ID='$newid'/" $USER_DATA/dns/$domain.conf
 # Sorting records
 sort_dns_records
 
+# Update serial
+update_domain_serial
 # Updating zone
 if [[ "$DNS_SYSTEM" =~ named|bind ]]; then
-    rebuild_dns_domain_conf
+	rebuild_dns_domain_conf
 fi
 
 # Updating dns-cluster queue
-if [ "$DNS_CLUSTER"  = "yes" ]; then
-    # Check for first sync
-    dlock=$(grep "domain $user $domain" $HESTIA/data/queue/dns-cluster.pipe)
-    if [ -z "$dlock" ]; then
-        cmd="$BIN/v-add-remote-dns-domain $user $domain records"
-        echo "$cmd" >> $HESTIA/data/queue/dns-cluster.pipe
-    fi
+if [ "$DNS_CLUSTER" = "yes" ]; then
+	# Check for first sync
+	dlock=$(grep "domain $user $domain" $HESTIA/data/queue/dns-cluster.pipe)
+	if [ -z "$dlock" ]; then
+		cmd="$BIN/v-add-remote-dns-domain $user $domain records"
+		echo "$cmd" >> $HESTIA/data/queue/dns-cluster.pipe
+	fi
 fi
 
 #----------------------------------------------------------#
@@ -83,7 +85,7 @@ fi
 
 # Restarting named
 $BIN/v-restart-dns "$restart"
-check_result $? "DNS restart failed" >/dev/null
+check_result $? "DNS restart failed" > /dev/null
 
 # Logging
 log_event "$OK" "$ARGUMENTS"

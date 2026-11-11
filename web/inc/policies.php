@@ -1,14 +1,21 @@
 <?php
 
-    if ((($_SESSION['userContext'] === 'user') && ($panel[$user]['SUSPENDED'] === 'yes') && ($_SESSION['POLICY_USER_VIEW_SUSPENDED'] === 'yes')) ||
-       (($_SESSION['userContext'] === 'admin') && ($_SESSION['look'] === 'admin') && ($_SESSION['POLICY_SYSTEM_PROTECTED_ADMIN'] === 'yes'))) {
-        $read_only = 'true';
-    } else {
-        $read_only = '';
-    }
+$read_only = false;
 
-    if ($read_only === 'true') {
-        $display_mode = 'disabled';
-    } else {
-        $display_mode = '';
-    }
+if (
+	$_SESSION["userContext"] === "user" &&
+	($_SESSION["POLICY_USER_VIEW_SUSPENDED"] ?? "") === "yes"
+) {
+	$policy_data = get_user_data($_SESSION["user"]);
+	if (($policy_data[$_SESSION["user"]]["SUSPENDED"] ?? "") === "yes") {
+		$read_only = true;
+	}
+} elseif (
+	$_SESSION["userContext"] === "admin" &&
+	$_SESSION["look"] === $_SESSION["ROOT_USER"] &&
+	($_SESSION["POLICY_SYSTEM_PROTECTED_ADMIN"] ?? "") === "yes"
+) {
+	$read_only = true;
+}
+
+$display_mode = $read_only ? "disabled" : "";

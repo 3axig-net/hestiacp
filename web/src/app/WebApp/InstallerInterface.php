@@ -1,11 +1,16 @@
 <?php
+
 declare(strict_types=1);
 
 namespace Hestia\WebApp;
 
+use Hestia\WebApp\InstallationTarget\InstallationTarget;
+
 interface InstallerInterface
 {
-    public function install(array $options = null);
-    public function getDocRoot(string $append_relative_path = null) : string;
-    public function withDatabase() : bool;
+    public function getInfo(): InstallerInfo;
+
+    public function getConfig(string $section = ''): mixed;
+
+    public function install(InstallationTarget $target, array $options): void;
 }
